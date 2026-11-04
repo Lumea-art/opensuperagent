@@ -101,6 +101,26 @@ function fixture(t: TestContext) {
   };
 }
 
+it("prints version and help without creating a data directory", (t) => {
+  const f = fixture(t);
+  const pkg = JSON.parse(
+    readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+  ) as { version: string };
+
+  for (const flag of ["--version", "-v"]) {
+    const result = f.run([flag]);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout.trim(), `opensuperagent ${pkg.version}`);
+  }
+  for (const flag of ["--help", "-h"]) {
+    const result = f.run([flag]);
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /^opensuperagent <command>/);
+    assert.match(result.stdout, /--version/);
+  }
+  assert.equal(existsSync(f.globalConfig), false);
+});
+
 for (const selected of ["explicit", "environment", "local", "global"] as const) {
   it(`init and other CLI commands select the ${selected} config by priority`, (t) => {
     const f = fixture(t);

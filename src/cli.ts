@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { copyFileSync, existsSync, mkdirSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadConfig, discoverConfigPath, defaultConfigDir } from "./config.js";
@@ -11,11 +11,22 @@ import { ApiServer } from "./api/index.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
+const VERSION = (
+  JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")) as { version: string }
+).version;
 
 async function main(): Promise<void> {
   const [cmd, ...args] = process.argv.slice(2);
 
   switch (cmd) {
+    case "--version":
+    case "-v":
+      console.log(`opensuperagent ${VERSION}`);
+      break;
+    case "--help":
+    case "-h":
+      printHelp();
+      break;
     case "init":
       await cmdInit(args);
       break;
@@ -49,6 +60,10 @@ Commands:
   def export <id>          Print definition JSON
   skill import <dir>       Import a skill directory (SKILL.md)
   skill list               List skills
+
+Options:
+  -h, --help               Show this help
+  -v, --version            Show version
 `);
 }
 

@@ -143,10 +143,7 @@ export class ApiServer {
       if (!this.authorize(req, res)) return;
       if (["POST", "PUT", "DELETE", "PATCH"].includes(req.method ?? "")) {
         const origin = req.headers.origin;
-        if (
-          origin &&
-          (origin === "null" || new URL(origin).host !== req.headers.host)
-        )
+        if (origin && !isSameOrigin(origin, req.headers.host))
           throw new HttpError(403, "Cross-origin writes are not allowed");
         if (
           req.method !== "DELETE" &&
@@ -544,6 +541,15 @@ export class ApiServer {
       return false;
     }
     return true;
+  }
+}
+
+function isSameOrigin(origin: string, host: string | undefined): boolean {
+  if (origin === "null") return false;
+  try {
+    return new URL(origin).host.toLowerCase() === host?.toLowerCase();
+  } catch {
+    return false;
   }
 }
 

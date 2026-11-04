@@ -152,6 +152,15 @@ describe("runtime model configuration", () => {
         body: JSON.stringify(provider),
       });
       assert.equal(badOrigin.status, 403);
+      const malformedOrigin = await fetch(h.api.url + "/api/settings/providers", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Origin: "not-a-url",
+        },
+        body: JSON.stringify(provider),
+      });
+      assert.equal(malformedOrigin.status, 403);
       h.app.config.console.admin_token = "admin-test";
       assert.equal((await fetch(h.api.url + "/api/settings")).status, 401);
       const authorized = await fetch(h.api.url + "/api/settings", {

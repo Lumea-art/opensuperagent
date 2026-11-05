@@ -44,7 +44,7 @@ export class ApiServer {
     const address = this.server?.address();
     if (!address || typeof address === "string")
       throw new Error("Server is not listening");
-    return `http://127.0.0.1:${address.port}`;
+    return `http://${formatHttpHost(address.address)}:${address.port}`;
   }
 
   async start(): Promise<void> {
@@ -68,7 +68,7 @@ export class ApiServer {
       this.server!.listen(port, host, () => {
         const address = this.server!.address();
         const boundPort = address && typeof address !== "string" ? address.port : port;
-        console.log(`[api] listening on http://${host}:${boundPort}`);
+        console.log(`[api] listening on http://${formatHttpHost(host)}:${boundPort}`);
         console.log(`[api] web root ${this.webRoot}`);
         resolve();
       });
@@ -551,6 +551,10 @@ function isSameOrigin(origin: string, host: string | undefined): boolean {
   } catch {
     return false;
   }
+}
+
+function formatHttpHost(host: string): string {
+  return host.includes(":") ? `[${host}]` : host;
 }
 
 function resolveWebRoot(): string {

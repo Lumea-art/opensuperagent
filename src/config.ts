@@ -123,11 +123,32 @@ export function loadConfig(configPath?: string): AppConfig {
 }
 
 export function parseListen(listen: string): { host: string; port: number } {
-  const [host, portStr] = listen.includes(":")
-    ? listen.split(":")
-    : ["127.0.0.1", listen];
+  let host: string;
+  let portStr: string;
+
+  if (listen.startsWith("[")) {
+    const closing = listen.indexOf("]");
+    if (closing <= 1) throw new Error(`Invalid console.listen: ${listen}`);
+    host = listen.slice(1, closing);
+    const rest = listen.slice(closing + 1);
+    if (!rest.startsWith(":") || rest.length === 1) {
+      throw new Error(`Invalid console.listen: ${listen}`);
+    }
+    portStr = rest.slice(1);
+  } else {
+    const separator = listen.lastIndexOf(":");
+    if (separator === -1) {
+      host = "127.0.0.1";
+      portStr = listen;
+    } else {
+      host = listen.slice(0, separator);
+      portStr = listen.slice(separator + 1);
+      if (host.includes(":")) throw new Error(`Invalid console.listen: ${listen}`);
+    }
+  }
+
   const port = Number(portStr);
-  if (!Number.isInteger(port) || port < 0 || port > 65535) {
+  if (portStr === "" || !Number.isInteger(port) || port < 0 || port > 65535) {
     throw new Error(`Invalid console.listen: ${listen}`);
   }
   return { host, port };

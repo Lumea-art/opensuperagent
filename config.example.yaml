@@ -27,6 +27,7 @@ supervisor:
   interval_sec: 60
 
 console:
+  # host:port; use [::1]:7420 for IPv6 loopback
   listen: 127.0.0.1:7420
   # admin_token: set via env OPENSUPERAGENT_ADMIN_TOKEN for non-loopback access
 

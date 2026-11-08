@@ -61,6 +61,13 @@ export class EventBus {
     return event;
   }
 
+  latestAt(scope: string): string | null {
+    const row = this.db
+      .prepare("SELECT MAX(created_at) AS at FROM journal WHERE scope = ?")
+      .get(scope) as { at: string | null } | undefined;
+    return row?.at ?? null;
+  }
+
   list(scope?: string, limit = 200): JournalEvent[] {
     if (scope) {
       return rows<{

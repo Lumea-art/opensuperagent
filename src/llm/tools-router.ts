@@ -115,6 +115,12 @@ export const ROUTER_CHAT_TOOLS: ChatTool[] = [
   },
 ];
 
+const WATCHDOG_TOOL_NAMES = new Set(["list_tasks", "read_task", "read_trigger"]);
+
+export const WATCHDOG_CHAT_TOOLS: ChatTool[] = ROUTER_CHAT_TOOLS.filter((tool) =>
+  WATCHDOG_TOOL_NAMES.has(tool.function.name),
+);
+
 export async function executeRouterTool(input: {
   tools: RouterTools;
   store: Store;

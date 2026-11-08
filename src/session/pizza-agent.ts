@@ -10,7 +10,11 @@ import type { EventBus } from "../events/bus.js";
 import type { LlmConfig } from "../llm/types.js";
 import type { FacadeFactory, SessionFacadeHandle } from "./manager.js";
 import { TaggingStore, type EventAppendInput } from "./tagging-store.js";
-import { ROUTER_CHAT_TOOLS, executeRouterTool } from "../llm/tools-router.js";
+import {
+  ROUTER_CHAT_TOOLS,
+  WATCHDOG_CHAT_TOOLS,
+  executeRouterTool,
+} from "../llm/tools-router.js";
 import { submitResultCommand } from "../worker/commands.js";
 import { validateToolArguments } from "../llm/tool-validation.js";
 import { nativeWorkerTools } from "./native-worker-tools.js";
@@ -119,8 +123,10 @@ export function createPizzaFacadeFactory(deps: {
     const pizza = await loadPizza();
     const owner = session.owner;
     const isRouter = owner === "router";
-    const task = isRouter ? null : deps.store.tasks.get(owner);
-    if (!isRouter && !task) {
+    const isWatchdog = owner === "watchdog";
+    const isAgent = isRouter || isWatchdog;
+    const task = isAgent ? null : deps.store.tasks.get(owner);
+    if (!isAgent && !task) {
       throw new Error(`Worker session ${owner} has no task`);
     }
 
@@ -130,10 +136,10 @@ export function createPizzaFacadeFactory(deps: {
     const registry = pizza.ModelRegistry.inMemory(auth);
     const resolveModel = () => {
       const cfg = deps.resolveModel(
-        isRouter ? "router" : "worker",
+        isRouter || isWatchdog ? "router" : "worker",
         modelName,
       );
-      const modelId = isRouter ? cfg.routerModel : cfg.workerModel;
+      const modelId = isRouter || isWatchdog ? cfg.routerModel : cfg.workerModel;
       registry.registerProvider(cfg.provider, {
         baseUrl: cfg.baseUrl,
         apiKey: cfg.apiKey,
@@ -161,7 +167,11 @@ export function createPizzaFacadeFactory(deps: {
     };
     const model = resolveModel();
     const redact = (message: string) => deps.redact?.(message) ?? message;
-    const chatTools = isRouter ? ROUTER_CHAT_TOOLS : [];
+    const chatTools = isRouter
+      ? ROUTER_CHAT_TOOLS
+      : isWatchdog
+        ? WATCHDOG_CHAT_TOOLS
+        : [];
 
     let activeRunId = "";
     let yielded = false;
@@ -189,7 +199,7 @@ export function createPizzaFacadeFactory(deps: {
         };
       },
     }));
-    const nativeTools = isRouter ? [] : nativeWorkerTools(
+    const nativeTools = isAgent ? [] : nativeWorkerTools(
       pizza, task!.definition, cwd ?? task!.workspacePath, deps.paths.taskSkills(owner),
       [submitResultCommand({
         controls: deps.workerControls,
@@ -210,7 +220,7 @@ export function createPizzaFacadeFactory(deps: {
           if (runId !== activeRunId) throw new Error("Tool belongs to an earlier Run");
           if (!runId || deps.store.runs.get(runId)?.status !== "submitted")
             throw new Error("Run is no longer active");
-          if (!isRouter && deps.store.tasks.isTerminal(deps.store.tasks.get(owner)!.status))
+          if (!isAgent && deps.store.tasks.isTerminal(deps.store.tasks.get(owner)!.status))
             throw new Error("Task is closed");
           const invalid = validateToolArguments(args[1], tool.parameters);
           if (invalid) throw new Error(`Invalid tool arguments: ${invalid}`);
@@ -219,7 +229,7 @@ export function createPizzaFacadeFactory(deps: {
             builtin?: { name?: string; details?: { result?: { ok?: boolean } } };
           } | undefined)?.builtin;
           const submitted = builtin?.name === "_submit_result" && builtin.details?.result?.ok;
-          if (!isRouter && (submitted || deps.store.tasks.isTerminal(deps.store.tasks.get(owner)!.status))) {
+          if (!isAgent && (submitted || deps.store.tasks.isTerminal(deps.store.tasks.get(owner)!.status))) {
             yielded = true;
             facade.abort();
           }
@@ -248,7 +258,7 @@ export function createPizzaFacadeFactory(deps: {
         noExtensions: true,
         noBuiltinExtensions: true,
         noSkills: true,
-        skillsOverride: () => isRouter
+        skillsOverride: () => isAgent
           ? { skills: [], diagnostics: [] }
           : pizza.loadSkillsFromDir({ dir: deps.paths.taskSkills(owner), source: "task" }),
         noBuiltinSkills: true,
@@ -287,7 +297,7 @@ export function createPizzaFacadeFactory(deps: {
     let aborted = false;
     let llmCalls = 0;
     let overBudget = false;
-    const maxCalls = isRouter ? ROUTER_MAX_CALLS : WORKER_MAX_CALLS;
+    const maxCalls = isAgent ? ROUTER_MAX_CALLS : WORKER_MAX_CALLS;
 
     facade.subscribe((event) => {
       const payload =

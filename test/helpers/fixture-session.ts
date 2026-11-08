@@ -45,6 +45,12 @@ export function createFixtureFacadeFactory(deps: {
 
         if (session.owner === "router") {
           await runRouterTurn(deps, session.id, active.id);
+        } else if (session.owner === "watchdog") {
+          deps.events.emit({
+            scope: "watchdog",
+            kind: "assistant",
+            summary: "Watchdog diagnosis: read-only inspection complete",
+          });
         } else {
           await runWorkerTurn(deps, session.owner, session.id, active.id, cwd);
         }

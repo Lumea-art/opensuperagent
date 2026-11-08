@@ -60,16 +60,5 @@ export class Supervisor {
         this.store.runs.transition(run.id, "submitted", "aborted");
       }
     }
-
-    // Stall detection (alert only)
-    const stallMs = this.config.supervisor.stall_after_sec * 1000;
-    for (const task of this.store.tasks.listOpen()) {
-      const age = Date.now() - Date.parse(task.updatedAt);
-      if (age > stallMs && task.status === "waiting") {
-        console.warn(
-          `[supervisor] task ${task.id} stalled (no progress for ${this.config.supervisor.stall_after_sec}s)`,
-        );
-      }
-    }
   }
 }

@@ -16,6 +16,7 @@ import { buildRouterSystemPrompt } from "./router/prompts.js";
 import { RouterTools, RouterLoop } from "./router/index.js";
 import { WorkerControls, WorkerLoop } from "./worker/index.js";
 import { Supervisor } from "./supervisor/index.js";
+import { WatchdogLoop } from "./watchdog/index.js";
 import { EventBus } from "./events/bus.js";
 import { loadLlmConfig } from "./llm/index.js";
 import { SettingsStore } from "./settings/store.js";
@@ -46,6 +47,7 @@ export class App {
   readonly routerLoop: RouterLoop;
   readonly workerControls: WorkerControls;
   readonly workerLoop: WorkerLoop;
+  readonly watchdogLoop: WatchdogLoop;
   readonly supervisor: Supervisor;
   readonly settings: SettingsStore;
   readonly adapters: Adapters;
@@ -155,6 +157,13 @@ export class App {
       this.sessions,
       config.instance.max_active_tasks,
       this.paths,
+    );
+    this.watchdogLoop = new WatchdogLoop(
+      this.store,
+      this.sessions,
+      this.paths,
+      this.events,
+      config,
     );
     this.supervisor = new Supervisor(
       this.store,
@@ -354,6 +363,7 @@ export class App {
       const progress = await Promise.allSettled([
         canRun ? this.routerLoop.tick() : Promise.resolve(false),
         canRun ? this.workerLoop.tickAll() : Promise.resolve(0),
+        canRun ? this.watchdogLoop.tick() : Promise.resolve(false),
         this.delivery.flushPending(),
       ]);
       for (const result of progress)
@@ -366,14 +376,16 @@ export class App {
       const routed = progress[0]?.status === "fulfilled" && progress[0].value;
       const worked =
         progress[1]?.status === "fulfilled" ? Number(progress[1].value) : 0;
+      const watched =
+        progress[2]?.status === "fulfilled" && progress[2].value === true;
       const sent =
-        (progress[2]?.status === "fulfilled" ? Number(progress[2].value) : 0) +
+        (progress[3]?.status === "fulfilled" ? Number(progress[3].value) : 0) +
         (await this.delivery.flushPending());
-      if (routed || worked > 0 || sent > 0 || completed.length > 0) {
+      if (routed || worked > 0 || watched || sent > 0 || completed.length > 0) {
         this.events.emit({
           scope: "system",
           kind: "pump",
-          summary: `router=${routed} workers=${worked} deliveries=${sent} ops=${completed.length}`,
+          summary: `router=${routed} workers=${worked} watchdog=${watched} deliveries=${sent} ops=${completed.length}`,
         });
       }
     } catch (err) {

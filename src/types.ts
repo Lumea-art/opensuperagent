@@ -56,6 +56,30 @@ export interface Trigger {
   createdAt: string;
 }
 
+export type ThreadStatus = "active" | "archived";
+
+export interface Thread {
+  id: string;
+  source: string;
+  externalKey: string;
+  status: ThreadStatus;
+  ownerTaskId: string | null;
+  lastSeq: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ThreadEvent {
+  id: string;
+  threadId: string;
+  seq: number;
+  triggerId: string | null;
+  kind: string;
+  summary: string;
+  payloadRef: string | null;
+  createdAt: string;
+}
+
 export interface Task {
   id: string;
   ownerId: string;

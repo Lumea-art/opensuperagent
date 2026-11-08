@@ -182,5 +182,76 @@ SET definition = json_remove(
 WHERE json_type(definition, '$.modelProfile') IS NOT NULL;
 `,
   },
+  {
+    version: 5,
+    name: "005_threads",
+    sql: `
+CREATE TABLE IF NOT EXISTS threads (
+  id TEXT PRIMARY KEY,
+  source TEXT NOT NULL,
+  external_key TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'active',
+  owner_task_id TEXT,
+  last_seq INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS threads_owner
+  ON threads(owner_task_id);
+
+CREATE TABLE IF NOT EXISTS thread_events (
+  id TEXT PRIMARY KEY,
+  thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
+  seq INTEGER NOT NULL,
+  trigger_id TEXT REFERENCES triggers(id),
+  kind TEXT NOT NULL,
+  summary TEXT NOT NULL,
+  payload_ref TEXT,
+  created_at TEXT NOT NULL,
+  UNIQUE (thread_id, seq)
+);
+
+CREATE INDEX IF NOT EXISTS thread_events_thread_seq
+  ON thread_events(thread_id, seq);
+
+-- Backfill Threads from routed triggers so existing data remains visible.
+INSERT OR IGNORE INTO threads
+  (id, source, external_key, status, owner_task_id, last_seq, created_at, updated_at)
+SELECT thread_id, MIN(source), thread_id, 'active', NULL, 0,
+       MIN(created_at), MAX(created_at)
+FROM triggers
+WHERE thread_id IS NOT NULL AND status = 'routed'
+GROUP BY thread_id;
+
+INSERT INTO thread_events
+  (id, thread_id, seq, trigger_id, kind, summary, payload_ref, created_at)
+SELECT 'tev_' || lower(hex(randomblob(16))),
+       thread_id,
+       ROW_NUMBER() OVER (PARTITION BY thread_id ORDER BY created_at, id),
+       id, 'trigger', substr(preview, 1, 240), payload_ref, created_at
+FROM triggers
+WHERE thread_id IS NOT NULL AND status = 'routed';
+
+UPDATE threads
+SET last_seq = (
+  SELECT COALESCE(MAX(seq), 0)
+  FROM thread_events
+  WHERE thread_events.thread_id = threads.id
+)
+WHERE EXISTS (
+  SELECT 1 FROM thread_events WHERE thread_events.thread_id = threads.id
+);
+
+-- A subscription may predate any routed trigger; keep the Thread addressable.
+INSERT OR IGNORE INTO threads
+  (id, source, external_key, status, owner_task_id, last_seq, created_at, updated_at)
+SELECT s.thread_id, 'system', s.thread_id, 'active', NULL, 0,
+       strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+       strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+FROM subscriptions s
+WHERE NOT EXISTS (SELECT 1 FROM threads t WHERE t.id = s.thread_id);
+`,
+  },
 
 ];

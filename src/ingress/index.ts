@@ -46,6 +46,12 @@ export class Ingress {
       input.externalId,
     );
     if (existing) {
+      if (input.threadId)
+        this.store.threads.ensure({
+          id: input.threadId,
+          source: input.source,
+          externalKey: input.threadId,
+        });
       return {
         trigger: existing,
         duplicate: true,
@@ -72,6 +78,21 @@ export class Ingress {
         preview: input.preview,
         status: "routed",
       });
+      if (input.threadId) {
+        this.store.threads.ensure({
+          id: input.threadId,
+          source: input.source,
+          externalKey: input.threadId,
+        });
+        this.store.threads.appendEvent({
+          threadId: input.threadId,
+          triggerId: trigger.id,
+          kind: "trigger",
+          summary: input.preview.slice(0, 240),
+          payloadRef,
+        });
+      }
+
       // Control path is executed by App immediately, without an inbox item.
       if (decision.kind === "control") {
         return {

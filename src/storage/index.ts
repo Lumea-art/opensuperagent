@@ -9,6 +9,7 @@ import { OperationRepo } from "./repos/operations.js";
 import { DeliveryRepo } from "./repos/deliveries.js";
 import { CatalogRepo } from "./repos/catalog.js";
 import { ToolActionRepo } from "./repos/tool-actions.js";
+import { ThreadRepo } from "./repos/threads.js";
 
 export {
   openStateDb,
@@ -27,6 +28,7 @@ export class Store {
   readonly deliveries: DeliveryRepo;
   readonly catalog: CatalogRepo;
   readonly toolActions: ToolActionRepo;
+  readonly threads: ThreadRepo;
 
   constructor(readonly db: Db) {
     this.triggers = new TriggerRepo(db);
@@ -38,6 +40,7 @@ export class Store {
     this.deliveries = new DeliveryRepo(db);
     this.catalog = new CatalogRepo(db);
     this.toolActions = new ToolActionRepo(db);
+    this.threads = new ThreadRepo(db);
   }
 
   static open(dbPath: string): Store {

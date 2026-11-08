@@ -53,6 +53,8 @@ it("fans out one shared-thread event to every open subscriber", async () => {
     assert.equal(app.store.inbox.listPending(first.id).length, 1);
     assert.equal(app.store.inbox.listPending(second.id).length, 1);
     assert.equal(app.store.inbox.listPending("router").length, 0);
+    assert.equal(app.store.threads.get("thread-shared")!.lastSeq, 1);
+    assert.equal(app.store.threads.listEvents("thread-shared").length, 1);
     assert.ok(app.events.list(first.id).some((event) => event.kind === "ingress"));
     assert.ok(app.events.list(second.id).some((event) => event.kind === "ingress"));
 

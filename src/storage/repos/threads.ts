@@ -1,6 +1,11 @@
 import type { Db } from "../db.js";
 import { row, rows, withTransaction } from "../db.js";
-import type { Thread, ThreadEvent, ThreadStatus } from "../../types.js";
+import type {
+  Thread,
+  ThreadEvent,
+  ThreadObservation,
+  ThreadStatus,
+} from "../../types.js";
 import { newId, nowIso } from "../../ids.js";
 
 interface ThreadRow {
@@ -12,6 +17,15 @@ interface ThreadRow {
   last_seq: number;
   created_at: string;
   updated_at: string;
+}
+
+interface ThreadObservationRow {
+  thread_id: string;
+  last_seq: number;
+  last_event_at: string;
+  last_summary: string;
+  unread: number;
+  consumed_seq: number;
 }
 
 interface ThreadEventRow {
@@ -35,6 +49,17 @@ function mapThread(r: ThreadRow): Thread {
     lastSeq: Number(r.last_seq),
     createdAt: r.created_at,
     updatedAt: r.updated_at,
+  };
+}
+
+function mapObservation(r: ThreadObservationRow): ThreadObservation {
+  return {
+    threadId: r.thread_id,
+    lastSeq: Number(r.last_seq),
+    lastEventAt: r.last_event_at,
+    lastSummary: r.last_summary,
+    unread: r.unread === 1,
+    consumedSeq: Number(r.consumed_seq),
   };
 }
 
@@ -156,8 +181,58 @@ export class ThreadRepo {
           event.payloadRef,
           event.createdAt,
         );
+      this.db
+        .prepare(
+          `INSERT INTO thread_observations
+           (thread_id, last_seq, last_event_at, last_summary, unread, consumed_seq)
+           VALUES (?, ?, ?, ?, 1, 0)
+           ON CONFLICT(thread_id) DO UPDATE SET
+             last_seq = excluded.last_seq,
+             last_event_at = excluded.last_event_at,
+             last_summary = excluded.last_summary,
+             unread = 1`,
+        )
+        .run(
+          event.threadId,
+          event.seq,
+          event.createdAt,
+          event.summary,
+        );
       return event;
     });
+  }
+
+  getObservation(threadId: string): ThreadObservation | null {
+    const r = row<ThreadObservationRow>(
+      this.db
+        .prepare("SELECT * FROM thread_observations WHERE thread_id = ?")
+        .get(threadId),
+    );
+    return r ? mapObservation(r) : null;
+  }
+
+  listUnobserved(limit = 20): ThreadObservation[] {
+    return rows<ThreadObservationRow>(
+      this.db
+        .prepare(
+          `SELECT * FROM thread_observations
+           WHERE unread = 1
+           ORDER BY last_event_at DESC
+           LIMIT ?`,
+        )
+        .all(Math.max(1, Math.min(limit, 100))),
+    ).map(mapObservation);
+  }
+
+  markObserved(threadId: string, throughSeq: number): void {
+    this.db
+      .prepare(
+        `UPDATE thread_observations
+         SET consumed_seq = ?,
+             unread = CASE WHEN last_seq > ? THEN 1 ELSE 0 END
+         WHERE thread_id = ? AND consumed_seq < ?`,
+      )
+      .run(throughSeq, throughSeq, threadId, throughSeq);
   }
 
   listEvents(threadId: string, afterSeq = 0, limit = 100): ThreadEvent[] {

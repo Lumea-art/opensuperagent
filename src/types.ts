@@ -87,6 +87,15 @@ export interface ThreadEvent {
   createdAt: string;
 }
 
+export interface ThreadObservation {
+  threadId: string;
+  lastSeq: number;
+  lastEventAt: string;
+  lastSummary: string;
+  unread: boolean;
+  consumedSeq: number;
+}
+
 export interface Task {
   id: string;
   ownerId: string;

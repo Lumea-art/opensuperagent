@@ -35,6 +35,12 @@ it("projects triggers into a durable Thread event sequence", async () => {
     assert.equal(thread.ownerTaskId, null);
     assert.equal(thread.lastSeq, 2);
 
+    const observation = app.store.threads.getObservation("thread-events");
+    assert.ok(observation);
+    assert.equal(observation.lastSeq, 2);
+    assert.equal(observation.unread, true);
+    assert.equal(observation.consumedSeq, 0);
+
     const events = app.store.threads.listEvents("thread-events");
     assert.deepEqual(
       events.map((event) => event.seq),
@@ -52,6 +58,31 @@ it("projects triggers into a durable Thread event sequence", async () => {
       [2],
     );
 
+    app.store.threads.markObserved("thread-events", 2);
+    assert.equal(
+      app.store.threads.getObservation("thread-events")?.unread,
+      false,
+    );
+
+    app.ingress.accept({
+      source: "console",
+      externalId: "thread-event-3",
+      threadId: "thread-events",
+      actorId: "owner",
+      preview: "third message",
+      payload: { text: "third message" },
+    });
+    const revised = app.store.threads.getObservation("thread-events");
+    assert.equal(revised?.lastSeq, 3);
+    assert.equal(revised?.unread, true);
+    assert.equal(revised?.consumedSeq, 2);
+    assert.deepEqual(
+      app.store.threads
+        .listEvents("thread-events", revised!.consumedSeq)
+        .map((event) => event.seq),
+      [3],
+    );
+
     const duplicate = app.ingress.accept({
       source: "console",
       externalId: "thread-event-2",
@@ -61,7 +92,7 @@ it("projects triggers into a durable Thread event sequence", async () => {
       payload: { text: "second message" },
     });
     assert.equal(duplicate.duplicate, true);
-    assert.equal(app.store.threads.get("thread-events")!.lastSeq, 2);
+    assert.equal(app.store.threads.get("thread-events")!.lastSeq, 3);
 
     app.ingress.accept({
       source: "console",
@@ -69,7 +100,7 @@ it("projects triggers into a durable Thread event sequence", async () => {
       preview: "threadless",
       payload: { text: "threadless" },
     });
-    assert.equal(app.store.threads.get("thread-events")!.lastSeq, 2);
+    assert.equal(app.store.threads.get("thread-events")!.lastSeq, 3);
   } finally {
     await h.close();
   }

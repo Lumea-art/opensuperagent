@@ -299,5 +299,33 @@ WHERE owner_task_id IS NULL
   );
 `,
   },
+  {
+    version: 7,
+    name: "007_thread_observations",
+    sql: `
+CREATE TABLE IF NOT EXISTS thread_observations (
+  thread_id TEXT PRIMARY KEY REFERENCES threads(id) ON DELETE CASCADE,
+  last_seq INTEGER NOT NULL,
+  last_event_at TEXT NOT NULL,
+  last_summary TEXT NOT NULL,
+  unread INTEGER NOT NULL DEFAULT 0,
+  consumed_seq INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS thread_observations_unread
+  ON thread_observations(unread, last_event_at DESC);
+
+-- Existing history is already known; do not flood Router on migration.
+INSERT OR IGNORE INTO thread_observations
+  (thread_id, last_seq, last_event_at, last_summary, unread, consumed_seq)
+SELECT e.thread_id, e.seq, e.created_at, e.summary, 0, e.seq
+FROM thread_events e
+WHERE e.seq = (
+  SELECT MAX(e2.seq)
+  FROM thread_events e2
+  WHERE e2.thread_id = e.thread_id
+);
+`,
+  },
 
 ];

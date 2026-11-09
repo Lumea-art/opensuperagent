@@ -40,6 +40,19 @@ export class RouterLoop {
         model: this.config.models.router,
       });
 
+      const observations = this.store.threads.listUnobserved(10).map((obs) => ({
+        threadId: obs.threadId,
+        unread: obs.unread,
+        lastSeq: obs.lastSeq,
+        events: this.store.threads
+          .listEvents(obs.threadId, obs.consumedSeq, 3)
+          .map((event) => ({
+            seq: event.seq,
+            kind: event.kind,
+            summary: event.summary,
+          })),
+      }));
+
       const batch = this.sessions.beginRun("router", (items) => {
         const enriched = items.map((i) => {
           const t = this.store.triggers.get(i.triggerId)!;
@@ -53,6 +66,7 @@ export class RouterLoop {
         });
         return formatRouterBatch({
           openTasks: this.store.tasks.listOpen(),
+          observations,
           items: enriched,
         });
       });
@@ -70,6 +84,11 @@ export class RouterLoop {
         }
         this.store.inbox.markDone(batch.items.map((i) => i.id));
       }
+      for (const observation of observations)
+        this.store.threads.markObserved(
+          observation.threadId,
+          observation.lastSeq,
+        );
       return true;
     } finally {
       this.running = false;

@@ -29,6 +29,12 @@ export function buildRouterSystemPrompt(
 
 export function formatRouterBatch(input: {
   openTasks: Task[];
+  observations?: {
+    threadId: string;
+    unread: boolean;
+    lastSeq: number;
+    events: { seq: number; kind: string; summary: string }[];
+  }[];
   items: {
     triggerId: string;
     source: string;
@@ -54,5 +60,28 @@ export function formatRouterBatch(input: {
     )
     .join("\n");
 
-  return `## Open tasks\n${tasks}\n\n## New inputs\n${msgs}`;
+  const observations =
+    !input.observations || input.observations.length === 0
+      ? "(none)"
+      : input.observations
+          .map((observation) => {
+            const events = observation.events
+              .map(
+                (event) =>
+                  `  - seq=${event.seq} ${event.kind}: ` +
+                  JSON.stringify(event.summary),
+              )
+              .join("\n");
+            return (
+              `- thread=${observation.threadId} ` +
+              `last_seq=${observation.lastSeq} unread=${observation.unread}\n` +
+              events
+            );
+          })
+          .join("\n");
+
+  return (
+    `## Thread observations since last Router turn\n${observations}\n\n` +
+    `## Open tasks\n${tasks}\n\n## New inputs\n${msgs}`
+  );
 }

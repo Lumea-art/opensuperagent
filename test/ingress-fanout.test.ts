@@ -32,7 +32,7 @@ it("fans out one shared-thread event to every open subscriber", async () => {
       status: "active",
     });
     app.store.tasks.addSubscription(first.id, "thread-shared");
-    app.store.tasks.addSubscription(second.id, "thread-shared");
+    app.store.tasks.addSubscription(second.id, "thread-shared", "executor");
 
     const result = app.submitExternal({
       source: "webhook",

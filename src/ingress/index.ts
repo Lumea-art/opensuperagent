@@ -78,19 +78,21 @@ export class Ingress {
         preview: input.preview,
         status: "routed",
       });
+      let threadSeq: number | null = null;
       if (input.threadId) {
         this.store.threads.ensure({
           id: input.threadId,
           source: input.source,
           externalKey: input.threadId,
         });
-        this.store.threads.appendEvent({
+        const event = this.store.threads.appendEvent({
           threadId: input.threadId,
           triggerId: trigger.id,
           kind: "trigger",
           summary: input.preview.slice(0, 240),
           payloadRef,
         });
+        threadSeq = event.seq;
       }
 
       // Control path is executed by App immediately, without an inbox item.
@@ -104,22 +106,39 @@ export class Ingress {
         };
       }
 
-      // A shared Thread can have several open subscribers. Fan out one durable
-      // inbox row per subscriber; each Worker keeps its own isolated context.
-      const targets =
+      // Executors get actionable inbox rows; observers get the same Thread
+      // event as a non-executable observation, never a pending Worker run.
+      const executors =
         decision.kind === "task"
           ? [decision.taskId]
           : decision.kind === "tasks"
             ? decision.taskIds
             : ["router"];
-      const items = targets.map(
-        (target) =>
-          this.store.inbox.insertOrGet({
-            target,
-            triggerId: trigger.id,
-            steer: input.steer,
-          }).item,
-      );
+      const observers = decision.observerTaskIds ?? [];
+      const items = [
+        ...executors.map(
+          (target) =>
+            this.store.inbox.insertOrGet({
+              target,
+              triggerId: trigger.id,
+              steer: input.steer,
+            }).item,
+        ),
+        ...observers.map(
+          (target) =>
+            this.store.inbox.insertOrGet({
+              target,
+              triggerId: trigger.id,
+              mode: "observe",
+            }).item,
+        ),
+      ];
+      if (threadSeq !== null && input.threadId) {
+        for (const target of [...executors, ...observers]) {
+          if (target !== "router")
+            this.store.tasks.advanceCursor(target, input.threadId, threadSeq);
+        }
+      }
       return {
         trigger,
         duplicate: false,

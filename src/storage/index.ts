@@ -33,14 +33,14 @@ export class Store {
   constructor(readonly db: Db) {
     this.triggers = new TriggerRepo(db);
     this.inbox = new InboxRepo(db);
-    this.tasks = new TaskRepo(db);
+    this.threads = new ThreadRepo(db);
+    this.tasks = new TaskRepo(db, this.threads);
     this.sessions = new SessionRepo(db);
     this.runs = new RunRepo(db);
     this.operations = new OperationRepo(db);
     this.deliveries = new DeliveryRepo(db);
     this.catalog = new CatalogRepo(db);
     this.toolActions = new ToolActionRepo(db);
-    this.threads = new ThreadRepo(db);
   }
 
   static open(dbPath: string): Store {

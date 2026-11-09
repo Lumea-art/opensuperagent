@@ -79,6 +79,11 @@ export class WatchdogLoop {
 
     for (const task of this.store.tasks.listOpen()) {
       if (task.status !== "waiting") continue;
+      if (
+        this.store.tasks.hasSubscription(task.id) &&
+        !this.store.tasks.isExecutor(task.id)
+      )
+        continue;
       const lastProgressAt = this.events.latestAt(task.id) ?? task.updatedAt;
       const ageMs = now - Date.parse(lastProgressAt);
       if (!Number.isFinite(ageMs) || ageMs <= stallMs) continue;

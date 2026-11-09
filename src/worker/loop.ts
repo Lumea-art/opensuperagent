@@ -32,6 +32,11 @@ export class WorkerLoop {
       return false;
     const task = this.store.tasks.get(taskId);
     if (!task || this.store.tasks.isTerminal(task.status)) return false;
+    if (
+      this.store.tasks.hasSubscription(taskId) &&
+      !this.store.tasks.isExecutor(taskId)
+    )
+      return false;
     if (!this.sessions.isIdle(taskId)) return false;
     if (this.store.operations.findActiveForTask(taskId)) return false;
 
@@ -64,7 +69,9 @@ export class WorkerLoop {
       const batch = this.sessions.beginRun(taskId, (items) => {
         const history = this.store.db
           .prepare(
-            "SELECT trigger_id FROM inbox WHERE target = ? AND status = 'done' ORDER BY created_at DESC, rowid DESC LIMIT 30",
+            `SELECT trigger_id FROM inbox
+             WHERE target = ? AND status IN ('done', 'observed')
+             ORDER BY created_at DESC, rowid DESC LIMIT 30`,
           )
           .all(taskId)
           .reverse()

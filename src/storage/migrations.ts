@@ -253,5 +253,51 @@ FROM subscriptions s
 WHERE NOT EXISTS (SELECT 1 FROM threads t WHERE t.id = s.thread_id);
 `,
   },
+  {
+    version: 6,
+    name: "006_subscription_roles",
+    sql: `
+ALTER TABLE subscriptions
+  ADD COLUMN role TEXT NOT NULL DEFAULT 'observer';
+
+ALTER TABLE subscriptions
+  ADD COLUMN cursor_seq INTEGER NOT NULL DEFAULT 0;
+
+ALTER TABLE inbox
+  ADD COLUMN mode TEXT NOT NULL DEFAULT 'execute';
+
+CREATE INDEX IF NOT EXISTS subscriptions_thread_role
+  ON subscriptions(thread_id, role);
+
+-- Legacy Threads keep one executor: the earliest Task on that Thread.
+-- Additional subscriptions become observers unless later explicitly promoted.
+UPDATE subscriptions AS s
+SET role = 'executor'
+WHERE s.rowid = (
+  SELECT s2.rowid
+  FROM subscriptions s2
+  JOIN tasks t2 ON t2.id = s2.task_id
+  WHERE s2.thread_id = s.thread_id
+  ORDER BY t2.created_at, s2.task_id
+  LIMIT 1
+);
+
+UPDATE threads
+SET owner_task_id = (
+  SELECT s.task_id
+  FROM subscriptions s
+  JOIN tasks t ON t.id = s.task_id
+  WHERE s.thread_id = threads.id AND s.role = 'executor'
+  ORDER BY CASE WHEN t.status IN ('pending', 'active', 'waiting') THEN 0 ELSE 1 END,
+           t.created_at, s.task_id
+  LIMIT 1
+)
+WHERE owner_task_id IS NULL
+  AND EXISTS (
+    SELECT 1 FROM subscriptions s
+    WHERE s.thread_id = threads.id AND s.role = 'executor'
+  );
+`,
+  },
 
 ];

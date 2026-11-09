@@ -1,6 +1,6 @@
 import type { Db } from "../db.js";
 import { row, rows } from "../db.js";
-import type { InboxItem, InboxStatus } from "../../types.js";
+import type { InboxItem, InboxMode, InboxStatus } from "../../types.js";
 import { newId, nowIso } from "../../ids.js";
 
 interface InboxRow {
@@ -8,6 +8,7 @@ interface InboxRow {
   target: string;
   trigger_id: string;
   steer: number;
+  mode: string;
   status: string;
   run_id: string | null;
   created_at: string;
@@ -19,6 +20,7 @@ function mapInbox(r: InboxRow): InboxItem {
     target: r.target,
     triggerId: r.trigger_id,
     steer: r.steer === 1,
+    mode: r.mode as InboxMode,
     status: r.status as InboxStatus,
     runId: r.run_id,
     createdAt: r.created_at,
@@ -32,19 +34,25 @@ export class InboxRepo {
     target: string;
     triggerId: string;
     steer?: boolean;
+    mode?: InboxMode;
   }): InboxItem {
     const id = newId("inb");
     const createdAt = nowIso();
+    const mode = input.mode ?? "execute";
+    const status: InboxStatus = mode === "observe" ? "observed" : "pending";
     this.db
       .prepare(
-        `INSERT INTO inbox (id, target, trigger_id, steer, status, run_id, created_at)
-         VALUES (?, ?, ?, ?, 'pending', NULL, ?)`,
+        `INSERT INTO inbox
+         (id, target, trigger_id, steer, mode, status, run_id, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, NULL, ?)`,
       )
       .run(
         id,
         input.target,
         input.triggerId,
         input.steer ? 1 : 0,
+        mode,
+        status,
         createdAt,
       );
     return {
@@ -52,7 +60,8 @@ export class InboxRepo {
       target: input.target,
       triggerId: input.triggerId,
       steer: !!input.steer,
-      status: "pending",
+      mode,
+      status,
       runId: null,
       createdAt,
     };
@@ -62,6 +71,7 @@ export class InboxRepo {
     target: string;
     triggerId: string;
     steer?: boolean;
+    mode?: InboxMode;
   }): { item: InboxItem; created: boolean } {
     const existing = this.findByTargetTrigger(input.target, input.triggerId);
     if (existing) return { item: existing, created: false };
@@ -90,7 +100,7 @@ export class InboxRepo {
       this.db
         .prepare(
           `SELECT * FROM inbox
-           WHERE target = ? AND status = 'pending'
+           WHERE target = ? AND mode = 'execute' AND status = 'pending'
            ORDER BY created_at`,
         )
         .all(target),
@@ -101,7 +111,9 @@ export class InboxRepo {
     return rows<InboxRow>(
       this.db
         .prepare(
-          "SELECT * FROM inbox WHERE run_id = ? AND status = 'accepted' ORDER BY created_at, rowid",
+          `SELECT * FROM inbox
+           WHERE run_id = ? AND mode = 'execute' AND status = 'accepted'
+           ORDER BY created_at, rowid`,
         )
         .all(runId),
     ).map(mapInbox);
@@ -109,7 +121,7 @@ export class InboxRepo {
 
   bindToRun(ids: string[], runId: string): void {
     const stmt = this.db.prepare(
-      "UPDATE inbox SET run_id = ?, status = 'accepted' WHERE id = ? AND status = 'pending'",
+      "UPDATE inbox SET run_id = ?, status = 'accepted' WHERE id = ? AND mode = 'execute' AND status = 'pending'",
     );
     for (const id of ids) {
       stmt.run(runId, id);
@@ -128,7 +140,7 @@ export class InboxRepo {
   cancelPending(target: string): number {
     const result = this.db
       .prepare(
-        "UPDATE inbox SET status = 'cancelled' WHERE target = ? AND status = 'pending'",
+        "UPDATE inbox SET status = 'cancelled' WHERE target = ? AND mode = 'execute' AND status = 'pending'",
       )
       .run(target);
     return Number(result.changes);

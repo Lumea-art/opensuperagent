@@ -32,6 +32,16 @@ function routeTargetIds(decision: IngressResult["decision"]): string[] {
   return [];
 }
 
+function routeObserverIds(decision: IngressResult["decision"]): string[] {
+  if (
+    decision?.kind === "task" ||
+    decision?.kind === "tasks" ||
+    decision?.kind === "router"
+  )
+    return decision.observerTaskIds ?? [];
+  return [];
+}
+
 export class App {
   readonly paths: DataPaths;
   readonly store: Store;
@@ -255,11 +265,13 @@ export class App {
       for (const taskId of routeTargetIds(result.decision))
         void this.sessions.get(taskId)?.abort("steer");
     }
-    const scopes =
-      result.decision?.kind === "tasks"
+    const scopes = [
+      ...(result.decision?.kind === "tasks"
         ? result.decision.taskIds
-        : [input.taskId ?? "router"];
-    for (const scope of scopes) {
+        : [input.taskId ?? "router"]),
+      ...routeObserverIds(result.decision),
+    ];
+    for (const scope of new Set(scopes)) {
       this.events.emit({
         scope,
         kind: "ingress",
@@ -306,11 +318,13 @@ export class App {
       }
       return accepted;
     });
-    const scopes =
-      result.decision?.kind === "tasks"
+    const scopes = [
+      ...(result.decision?.kind === "tasks"
         ? result.decision.taskIds
-        : [result.decision?.kind === "task" ? result.decision.taskId : "router"];
-    for (const scope of scopes) {
+        : [result.decision?.kind === "task" ? result.decision.taskId : "router"]),
+      ...routeObserverIds(result.decision),
+    ];
+    for (const scope of new Set(scopes)) {
       this.events.emit({
         scope,
         kind: "ingress",

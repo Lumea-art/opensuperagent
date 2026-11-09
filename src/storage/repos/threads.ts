@@ -73,7 +73,12 @@ export class ThreadRepo {
         `INSERT INTO threads
          (id, source, external_key, status, owner_task_id, last_seq, created_at, updated_at)
          VALUES (?, ?, ?, 'active', NULL, 0, ?, ?)
-         ON CONFLICT(id) DO UPDATE SET updated_at = excluded.updated_at`,
+         ON CONFLICT(id) DO UPDATE SET
+           updated_at = excluded.updated_at,
+           source = CASE
+             WHEN threads.source = 'system' THEN excluded.source
+             ELSE threads.source
+           END`,
       )
       .run(
         input.id,
@@ -83,6 +88,25 @@ export class ThreadRepo {
         now,
       );
     return this.get(input.id)!;
+  }
+
+  /** Claim ownership when the Thread has no owner or its owner is terminal. */
+  claimOwner(threadId: string, taskId: string): void {
+    this.db
+      .prepare(
+        `UPDATE threads
+         SET owner_task_id = ?, updated_at = ?
+         WHERE id = ?
+           AND (
+             owner_task_id IS NULL
+             OR EXISTS (
+               SELECT 1 FROM tasks
+               WHERE tasks.id = threads.owner_task_id
+                 AND tasks.status IN ('completed', 'failed', 'cancelled')
+             )
+           )`,
+      )
+      .run(taskId, nowIso(), threadId);
   }
 
   /** Append one ordered Thread event. */

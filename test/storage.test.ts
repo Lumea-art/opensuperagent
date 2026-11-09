@@ -108,7 +108,7 @@ describe("storage + routing", () => {
       const second = makeTask("second", "active");
       const closed = makeTask("closed", "completed");
       store.tasks.addSubscription(first.id, "thread-shared");
-      store.tasks.addSubscription(second.id, "thread-shared");
+      store.tasks.addSubscription(second.id, "thread-shared", "executor");
       store.tasks.addSubscription(closed.id, "thread-shared");
 
       const decision = decideRoute(store, { threadId: "thread-shared" });
@@ -123,6 +123,87 @@ describe("storage + routing", () => {
       assert.deepEqual(decideRoute(store, { threadId: "thread-shared" }), {
         kind: "task",
         taskId: first.id,
+      });
+      store.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("defaults the first subscription to executor and later ones to observer", () => {
+    const dir = mkdtempSync(join(tmpdir(), "osa-"));
+    try {
+      const store = Store.open(join(dir, "state.sqlite"));
+      importSeed(store, join(root, "seed"));
+      const def = store.catalog.getDefinition("coding")!;
+      const makeTask = (name: string) =>
+        store.tasks.insert({
+          ownerId: "owner",
+          objective: name,
+          definition: def,
+          originTriggerId: "fixture",
+          workspacePath: join(dir, name),
+          status: "active",
+        });
+      const first = makeTask("first");
+      const second = makeTask("second");
+      const third = makeTask("third");
+
+      assert.equal(
+        store.tasks.addSubscription(first.id, "thread-roles"),
+        "executor",
+      );
+      assert.equal(
+        store.tasks.addSubscription(second.id, "thread-roles"),
+        "observer",
+      );
+      assert.equal(
+        store.tasks.addSubscription(third.id, "thread-roles", "executor"),
+        "executor",
+      );
+      assert.deepEqual(
+        new Set(store.tasks.findOpenByThread("thread-roles").map((task) => task.id)),
+        new Set([first.id, third.id]),
+      );
+      assert.deepEqual(
+        store.tasks
+          .findOpenObserversByThread("thread-roles")
+          .map((task) => task.id),
+        [second.id],
+      );
+      const decision = decideRoute(store, { threadId: "thread-roles" });
+      assert.equal(decision.kind, "tasks");
+      if (decision.kind !== "tasks") throw new Error("expected tasks");
+      assert.deepEqual(
+        new Set(decision.taskIds),
+        new Set([first.id, third.id]),
+      );
+      assert.deepEqual(decision.observerTaskIds, [second.id]);
+      assert.equal(
+        store.threads.get("thread-roles")?.ownerTaskId,
+        first.id,
+      );
+
+      const fourth = makeTask("fourth");
+      store.tasks.transition(first.id, "active", "completed");
+      assert.equal(
+        store.tasks.addSubscription(fourth.id, "thread-roles", "executor"),
+        "executor",
+      );
+      assert.equal(
+        store.threads.get("thread-roles")?.ownerTaskId,
+        fourth.id,
+      );
+
+      const onlyObserver = makeTask("only-observer");
+      store.tasks.addSubscription(
+        onlyObserver.id,
+        "thread-observer-only",
+        "observer",
+      );
+      assert.deepEqual(decideRoute(store, { threadId: "thread-observer-only" }), {
+        kind: "router",
+        observerTaskIds: [onlyObserver.id],
       });
       store.close();
     } finally {
@@ -154,6 +235,7 @@ describe("storage + routing", () => {
         status: "active",
       });
       store.tasks.addSubscription(task.id, "thread-a");
+      assert.equal(store.threads.get("thread-a")?.ownerTaskId, task.id);
 
       const d = decideRoute(store, { threadId: "thread-a" });
       assert.deepEqual(d, { kind: "task", taskId: task.id });

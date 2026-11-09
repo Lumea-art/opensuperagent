@@ -121,7 +121,7 @@ export class RouterTools {
       });
 
       if (primary.threadId) {
-        this.store.tasks.addSubscription(task.id, primary.threadId);
+        this.store.tasks.addSubscription(task.id, primary.threadId, "executor");
       }
 
       for (const tid of input.triggerIds) {
@@ -177,7 +177,7 @@ export class RouterTools {
         });
         const trigger = this.store.triggers.get(tid);
         if (trigger?.threadId)
-          this.store.tasks.addSubscription(task.id, trigger.threadId);
+          this.store.tasks.addSubscription(task.id, trigger.threadId, "executor");
       }
     });
 

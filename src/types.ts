@@ -14,7 +14,14 @@ export type RunStatus =
   | "completed"
   | "aborted"
   | "failed";
-export type InboxStatus = "pending" | "accepted" | "done" | "cancelled";
+export type SubscriptionRole = "executor" | "observer";
+export type InboxMode = "execute" | "observe";
+export type InboxStatus =
+  | "pending"
+  | "accepted"
+  | "done"
+  | "cancelled"
+  | "observed";
 export type OperationStatus =
   | "pending"
   | "running"
@@ -123,6 +130,7 @@ export interface InboxItem {
   target: string; // 'router' | task_id
   triggerId: string;
   steer: boolean;
+  mode: InboxMode;
   status: InboxStatus;
   runId: string | null;
   createdAt: string;

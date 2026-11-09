@@ -1,11 +1,13 @@
 import type { Db } from "../db.js";
 import { row, rows } from "../db.js";
 import type {
+  SubscriptionRole,
   Task,
   TaskResult,
   TaskStatus,
   WorkerDefinitionSpec,
 } from "../../types.js";
+import type { ThreadRepo } from "./threads.js";
 import { newId, nowIso } from "../../ids.js";
 
 interface TaskRow {
@@ -41,7 +43,10 @@ function mapTask(r: TaskRow): Task {
 const OPEN_STATUSES: TaskStatus[] = ["pending", "active", "waiting"];
 
 export class TaskRepo {
-  constructor(private readonly db: Db) {}
+  constructor(
+    private readonly db: Db,
+    private readonly threads?: ThreadRepo,
+  ) {}
 
   get(id: string): Task | null {
     const r = row<TaskRow>(
@@ -157,25 +162,117 @@ export class TaskRepo {
     return Number(r?.c ?? 0);
   }
 
-  addSubscription(taskId: string, threadId: string): void {
+  /**
+   * Subscribe a Task to a Thread.
+   *
+   * The first subscriber becomes the executor unless a role is explicitly
+   * requested. Later subscribers default to observer; multi-executor Threads
+   * require an explicit `role: "executor"` (Router does this when it assigns a
+   * trigger to an existing Task).
+   */
+  addSubscription(
+    taskId: string,
+    threadId: string,
+    requestedRole?: SubscriptionRole,
+  ): SubscriptionRole {
+    this.threads?.ensure({
+      id: threadId,
+      source: "system",
+      externalKey: threadId,
+    });
+    const existing = row<{ role: string }>(
+      this.db
+        .prepare(
+          "SELECT role FROM subscriptions WHERE task_id = ? AND thread_id = ?",
+        )
+        .get(taskId, threadId),
+    );
+    if (existing) {
+      if (requestedRole === "executor" && existing.role !== "executor") {
+        this.db
+          .prepare(
+            "UPDATE subscriptions SET role = 'executor' WHERE task_id = ? AND thread_id = ?",
+          )
+          .run(taskId, threadId);
+        this.threads?.claimOwner(threadId, taskId);
+        return "executor";
+      }
+      return existing.role as SubscriptionRole;
+    }
+
+    const hasExecutor = row<{ x: number }>(
+      this.db
+        .prepare(
+          `SELECT 1 AS x
+           FROM subscriptions s
+           JOIN tasks t ON t.id = s.task_id
+           WHERE s.thread_id = ? AND s.role = 'executor'
+             AND t.status IN ('pending', 'active', 'waiting')
+           LIMIT 1`,
+        )
+        .get(threadId),
+    );
+    const role: SubscriptionRole =
+      requestedRole ?? (hasExecutor ? "observer" : "executor");
     this.db
       .prepare(
-        "INSERT OR IGNORE INTO subscriptions (task_id, thread_id) VALUES (?, ?)",
+        "INSERT INTO subscriptions (task_id, thread_id, role, cursor_seq) VALUES (?, ?, ?, 0)",
       )
-      .run(taskId, threadId);
+      .run(taskId, threadId, role);
+    if (role === "executor") this.threads?.claimOwner(threadId, taskId);
+    return role;
+  }
+
+  isExecutor(taskId: string): boolean {
+    return !!row<{ x: number }>(
+      this.db
+        .prepare(
+          "SELECT 1 AS x FROM subscriptions WHERE task_id = ? AND role = 'executor' LIMIT 1",
+        )
+        .get(taskId),
+    );
+  }
+
+  hasSubscription(taskId: string): boolean {
+    return !!row<{ x: number }>(
+      this.db
+        .prepare("SELECT 1 AS x FROM subscriptions WHERE task_id = ? LIMIT 1")
+        .get(taskId),
+    );
+  }
+
+  advanceCursor(taskId: string, threadId: string, seq: number): void {
+    this.db
+      .prepare(
+        `UPDATE subscriptions
+         SET cursor_seq = CASE WHEN cursor_seq < ? THEN ? ELSE cursor_seq END
+         WHERE task_id = ? AND thread_id = ?`,
+      )
+      .run(seq, seq, taskId, threadId);
   }
 
   findOpenByThread(threadId: string): Task[] {
+    return this.findOpenByRole(threadId, "executor");
+  }
+
+  findOpenObserversByThread(threadId: string): Task[] {
+    return this.findOpenByRole(threadId, "observer");
+  }
+
+  private findOpenByRole(
+    threadId: string,
+    role: SubscriptionRole,
+  ): Task[] {
     const placeholders = OPEN_STATUSES.map(() => "?").join(",");
     return rows<TaskRow>(
       this.db
         .prepare(
           `SELECT t.* FROM tasks t
            JOIN subscriptions s ON s.task_id = t.id
-           WHERE s.thread_id = ? AND t.status IN (${placeholders})
+           WHERE s.thread_id = ? AND s.role = ? AND t.status IN (${placeholders})
            ORDER BY t.created_at, t.id`,
         )
-        .all(threadId, ...OPEN_STATUSES),
+        .all(threadId, role, ...OPEN_STATUSES),
     ).map(mapTask);
   }
 
